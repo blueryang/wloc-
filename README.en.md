@@ -16,19 +16,19 @@ Modify the coordinates returned by Apple's network-based location service (WiFi/
 ## Subscription links
 
 **Surge:**
-https://raw.githubusercontent.com/dongtai230/wloc/refs/heads/main/modules/wloc.sgmodule
+https://raw.githubusercontent.com/blueryang/wloc-/refs/heads/main/modules/wloc.sgmodule
 
 **Quantumult X:**
-https://raw.githubusercontent.com/dongtai230/wloc/refs/heads/main/modules/wloc.conf
+https://raw.githubusercontent.com/blueryang/wloc-/refs/heads/main/modules/wloc.conf
 
 **Loon:**
-https://raw.githubusercontent.com/dongtai230/wloc/refs/heads/main/modules/wloc.lpx
+https://raw.githubusercontent.com/blueryang/wloc-/refs/heads/main/modules/wloc.lpx
 
 **Stash:**
-https://raw.githubusercontent.com/dongtai230/wloc/refs/heads/main/modules/wloc.stoverride
+https://raw.githubusercontent.com/blueryang/wloc-/refs/heads/main/modules/wloc.stoverride
 
 **Shadowrocket:**
-https://raw.githubusercontent.com/dongtai230/wloc/refs/heads/main/modules/wloc.module
+https://raw.githubusercontent.com/blueryang/wloc-/refs/heads/main/modules/wloc.module
 
 > Egern can use the Surge module directly
 > For Stash, subscribe to the `.stoverride` above directly — no need to convert it with Script Hub
@@ -185,7 +185,7 @@ The public picker page has a request limit, so deploying your own instance is re
 
 **One-click deploy (Workers):**
 
-[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/dongtai230/wloc/tree/main/worker)
+[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/blueryang/wloc-/tree/main/worker)
 
 > One-click deploy only supports Workers mode; click the button and follow the prompts to authorize and finish the deployment.
 
@@ -193,7 +193,7 @@ The public picker page has a request limit, so deploying your own instance is re
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/dongtai230/wloc.git
+git clone https://github.com/blueryang/wloc-.git
 cd wloc-spoofer-en/worker
 
 # 2. Install dependencies
@@ -216,7 +216,7 @@ Once deployed you'll get your own Worker address (e.g. `https://wloc-spoofer.<yo
 Pages deployment does not support the one-click button and must be done manually:
 
 ```bash
-git clone https://github.com/dongtai230/wloc.git
+git clone https://github.com/blueryang/wloc-.git
 cd wloc-spoofer-en/worker
 npm install
 npx wrangler pages deploy dist --project-name <your-project-name>
