@@ -60,6 +60,11 @@ async function handleApiParse(url) {
 		converted = true;
 		system = "wgs84";
 	}
+	// 坐标合法性兜底: 经度归一化到 [-180,180]; 纬度超限则拒绝, 避免存入无效坐标导致定位失效
+	longitude = ((longitude % 360) + 540) % 360 - 180;
+	if (!(latitude >= -90 && latitude <= 90)) {
+		return jsonResp({ error: "latitude out of range", latitude: latitude, longitude: longitude }, 422, headers);
+	}
 	return jsonResp({
 		latitude: latitude,
 		longitude: longitude,
