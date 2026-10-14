@@ -16,9 +16,135 @@ export default {
 		if (request.method === "OPTIONS") {
 			return new Response(null, { headers: { "Access-Control-Allow-Origin": "*" } });
 		}
+		if (url.pathname === "/api/parse") {
+			return handleApiParse(url);
+		}
 		return servePage(url);
 	},
 };
+
+/* ---------------- /api/parse: 地图分享链接 → 经纬度 ----------------
+ * GET /api/parse?url=<分享链接>
+ * 流程: 提取链接 → 跟随跳转(短链) → 抠坐标 → 中国境内 GCJ-02→WGS-84 → 返回 JSON
+ * 全程无存储、无日志、无缓存,处理完即丢。
+ */
+async function handleApiParse(url) {
+	const headers = { "Content-Type": "application/json;charset=utf-8", "Access-Control-Allow-Origin": "*" };
+	const input = (url.searchParams.get("url") || "").trim();
+	if (!input) return jsonResp({ error: "missing url parameter" }, 400, headers);
+	const link = extractFirstUrl(input);
+	if (!link) return jsonResp({ error: "no url found in input" }, 400, headers);
+
+	// 跟跳转(自动跟随),拿到最终 URL(高德短链的真实坐标藏在跳转之后)
+	let finalUrl = link;
+	try {
+		const resp = await fetch(link, {
+			redirect: "follow",
+			headers: { "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15" },
+		});
+		if (resp.url) finalUrl = resp.url;
+	} catch (e) { /* 网络失败则用原始链接继续解析 */ }
+
+	const found = parseCoordinates(finalUrl) || parseCoordinates(link);
+	if (!found) return jsonResp({ error: "no coordinates found", url: finalUrl }, 422, headers);
+
+	let latitude = found.latitude;
+	let longitude = found.longitude;
+	let system = found.system;
+	let converted = false;
+	// 中国境内的 GCJ-02 偏移坐标 → 转 WGS-84;境外跳过换算原样返回
+	if (system === "gcj02" && !outOfChina(longitude, latitude)) {
+		const w = gcj02ToWgs84(longitude, latitude);
+		longitude = w.longitude;
+		latitude = w.latitude;
+		converted = true;
+		system = "wgs84";
+	}
+	return jsonResp({
+		latitude: latitude,
+		longitude: longitude,
+		lat: latitude,
+		lng: longitude,
+		system: system,
+		converted: converted,
+		source: found.source,
+	}, 200, headers);
+}
+
+function jsonResp(obj, status, headers) {
+	return new Response(JSON.stringify(obj), { status: status, headers: headers });
+}
+
+// 输入可能是"文本夹链接"(链接混在分享文本里),抠出第一个 http(s) 链接
+function extractFirstUrl(text) {
+	const m = text.match(/https?:\/\/[^\s"'<>]+/i);
+	if (!m) return null;
+	try {
+		const d = decodeURIComponent(m[0]);
+		const m2 = d.match(/https?:\/\/[^\s"'<>]+/i);
+		return m2 ? m2[0] : m[0];
+	} catch (e) {
+		return m[0];
+	}
+}
+
+// 从 URL 里抠坐标,注意各家的经纬度顺序不同
+function parseCoordinates(u) {
+	let m;
+	// Apple 地图: ?coordinate=纬度,经度
+	m = u.match(/[?&]coordinate=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/i);
+	if (m) return { latitude: +m[1], longitude: +m[2], system: "gcj02", source: "apple" };
+	// 高德: p=经度,纬度 / dest=经度,纬度
+	m = u.match(/[?&](?:p|dest)=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/i);
+	if (m) return { longitude: +m[1], latitude: +m[2], system: "gcj02", source: "amap" };
+	// Google 地图: @纬度,经度,
+	m = u.match(/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)(?:,|\/|$|\?)/);
+	if (m) return { latitude: +m[1], longitude: +m[2], system: "gcj02", source: "google" };
+	// 通用: ?q=纬度,经度 / ?ll=纬度,经度
+	m = u.match(/[?&](?:q|ll)=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/i);
+	if (m) return { latitude: +m[1], longitude: +m[2], system: "gcj02", source: "generic" };
+	return null;
+}
+
+/* ---------------- 坐标系换算 ---------------- */
+const COORD_PI = Math.PI;
+const COORD_A = 6378245.0;
+const COORD_EE = 0.00669342162296594323;
+
+function outOfChina(lng, lat) {
+	return lng < 72.004 || lng > 137.8347 || lat < 0.8293 || lat > 55.8271;
+}
+
+function transformLat(lng, lat) {
+	let ret = -100.0 + 2.0 * lng + 3.0 * lat + 0.2 * lat * lat + 0.1 * lng * lat + 0.2 * Math.sqrt(Math.abs(lng));
+	ret += (20.0 * Math.sin(6.0 * lng * COORD_PI) + 20.0 * Math.sin(2.0 * lng * COORD_PI)) * 2.0 / 3.0;
+	ret += (20.0 * Math.sin(lat * COORD_PI) + 40.0 * Math.sin(lat / 3.0 * COORD_PI)) * 2.0 / 3.0;
+	ret += (160.0 * Math.sin(lat / 12.0 * COORD_PI) + 320 * Math.sin(lat * COORD_PI / 30.0)) * 2.0 / 3.0;
+	return ret;
+}
+
+function transformLng(lng, lat) {
+	let ret = 300.0 + lng + 2.0 * lat + 0.1 * lng * lng + 0.1 * lng * lat + 0.1 * Math.sqrt(Math.abs(lng));
+	ret += (20.0 * Math.sin(6.0 * lng * COORD_PI) + 20.0 * Math.sin(2.0 * lng * COORD_PI)) * 2.0 / 3.0;
+	ret += (20.0 * Math.sin(lng * COORD_PI) + 40.0 * Math.sin(lng / 3.0 * COORD_PI)) * 2.0 / 3.0;
+	ret += (150.0 * Math.sin(lng / 12.0 * COORD_PI) + 300.0 * Math.sin(lng / 30.0 * COORD_PI)) * 2.0 / 3.0;
+	return ret;
+}
+
+// GCJ-02 → WGS-84
+function gcj02ToWgs84(lng, lat) {
+	let dlat = transformLat(lng - 105.0, lat - 35.0);
+	let dlng = transformLng(lng - 105.0, lat - 35.0);
+	const radlat = lat / 180.0 * COORD_PI;
+	let magic = Math.sin(radlat);
+	magic = 1 - COORD_EE * magic * magic;
+	const sqrtmagic = Math.sqrt(magic);
+	dlat = (dlat * 180.0) / ((COORD_A * (1 - COORD_EE)) / (magic * sqrtmagic) * COORD_PI);
+	dlng = (dlng * 180.0) / ((COORD_A / sqrtmagic) * Math.cos(radlat) * COORD_PI);
+	const mglat = lat + dlat;
+	const mglng = lng + dlng;
+	return { longitude: lng * 2 - mglng, latitude: lat * 2 - mglat };
+}
 
 function servePage(url) {
 	const html = `<!DOCTYPE html>
