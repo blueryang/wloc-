@@ -82,15 +82,17 @@ function jsonResp(obj, status, headers) {
 
 // 输入可能是"文本夹链接"(链接混在分享文本里),抠出第一个 http(s) 链接
 function extractFirstUrl(text) {
-	const m = text.match(/https?:\/\/[^\s"'<>]+/i);
-	if (!m) return null;
+	// 先直接匹配:保留 %20 等合法编码,避免解码后在空格处截断 URL
+	// (Apple /place?address=... 链接里全是 %20,旧逻辑会把它截断成半截)
+	let m = text.match(/https?:\/\/[^\s"'<>]+/i);
+	if (m) return m[0];
+	// 直接匹配失败:可能是整段分享文本被二次编码过,解码后再试一次
 	try {
-		const d = decodeURIComponent(m[0]);
-		const m2 = d.match(/https?:\/\/[^\s"'<>]+/i);
-		return m2 ? m2[0] : m[0];
-	} catch (e) {
-		return m[0];
-	}
+		const d = decodeURIComponent(text);
+		m = d.match(/https?:\/\/[^\s"'<>]+/i);
+		if (m) return m[0];
+	} catch (e) { /* 忽略 */ }
+	return null;
 }
 
 // 从 URL 里抠坐标,注意各家的经纬度顺序不同
