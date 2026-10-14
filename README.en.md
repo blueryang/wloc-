@@ -16,19 +16,19 @@ Modify the coordinates returned by Apple's network-based location service (WiFi/
 ## Subscription links
 
 **Surge:**
-https://raw.githubusercontent.com/blueryang/wloc-/refs/heads/main/modules/wloc.sgmodule
+https://cdn.jsdelivr.net/gh/blueryang/wloc-@main/modules/wloc.sgmodule
 
 **Quantumult X:**
-https://raw.githubusercontent.com/blueryang/wloc-/refs/heads/main/modules/wloc.conf
+https://cdn.jsdelivr.net/gh/blueryang/wloc-@main/modules/wloc.conf
 
 **Loon:**
-https://raw.githubusercontent.com/blueryang/wloc-/refs/heads/main/modules/wloc.lpx
+https://cdn.jsdelivr.net/gh/blueryang/wloc-@main/modules/wloc.lpx
 
 **Stash:**
-https://raw.githubusercontent.com/blueryang/wloc-/refs/heads/main/modules/wloc.stoverride
+https://cdn.jsdelivr.net/gh/blueryang/wloc-@main/modules/wloc.stoverride
 
 **Shadowrocket:**
-https://raw.githubusercontent.com/blueryang/wloc-/refs/heads/main/modules/wloc.module
+https://cdn.jsdelivr.net/gh/blueryang/wloc-@main/modules/wloc.module
 
 > Egern can use the Surge module directly
 > For Stash, subscribe to the `.stoverride` above directly — no need to convert it with Script Hub

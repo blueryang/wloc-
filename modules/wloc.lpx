@@ -1,6 +1,6 @@
 #!name=Apple WLOC Location Spoofer
 #!desc=Modify the coordinates returned by Apple's network-based location service (WiFi/cell) | Shortcuts (recommended): Set Location https://www.icloud.com/shortcuts/182f3a014597468eb1b15b99261cdf22 Clear & Restore Location https://www.icloud.com/shortcuts/0352d53ed79849d382f50e9adf050662
-#!icon=https://raw.githubusercontent.com/blueryang/wloc-/refs/heads/main/wloc.jpg
+#!icon=https://cdn.jsdelivr.net/gh/blueryang/wloc-@main/wloc.jpg
 #!author=Yu9191 Rewrite
 #!homepage=https://github.com/blueryang/wloc-
 #!openUrl=https://wloc-spoofer.unlocknazi.workers.dev/
@@ -12,8 +12,8 @@ accuracy = input, "25", tag=Accuracy (meters)
 logLevel = select, "info", "off", "error", "warn", "debug", "all", tag=Log level
 
 [Script]
-http-response ^https?:\/\/gs-loc(-cn)?\.apple\.com\/clls\/wloc script-path=https://raw.githubusercontent.com/blueryang/wloc-/refs/heads/main/dist/wloc.js, requires-body=true, binary-body-mode=true, timeout=30, tag=Apple WLOC, argument=[{longitude},{latitude},{accuracy},{logLevel}]
-http-request ^https?:\/\/gs-loc(-cn)?\.apple\.com\/wloc-settings\/save script-path=https://raw.githubusercontent.com/blueryang/wloc-/refs/heads/main/dist/wloc-settings.js, timeout=10, tag=WLOC Settings
+http-response ^https?:\/\/gs-loc(-cn)?\.apple\.com\/clls\/wloc script-path=https://cdn.jsdelivr.net/gh/blueryang/wloc-@main/dist/wloc.js, requires-body=true, binary-body-mode=true, timeout=30, tag=Apple WLOC, argument=[{longitude},{latitude},{accuracy},{logLevel}]
+http-request ^https?:\/\/gs-loc(-cn)?\.apple\.com\/wloc-settings\/save script-path=https://cdn.jsdelivr.net/gh/blueryang/wloc-@main/dist/wloc-settings.js, timeout=10, tag=WLOC Settings
 
 [MITM]
 hostname = gs-loc.apple.com, gs-loc-cn.apple.com

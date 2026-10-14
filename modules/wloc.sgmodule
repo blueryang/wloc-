@@ -7,8 +7,8 @@
 #!arguments-desc=longitude/latitude: default coordinates (a saved online-picker location takes priority)\naccuracy: GPS accuracy (meters)\nlogLevel: off/error/warn/info/debug/all\n\nUsage: open the picker page -> choose a location -> Save to Device
 
 [Script]
-Apple WLOC = type=http-response, pattern="^https?:\/\/gs-loc(-cn)?\.apple\.com\/clls\/wloc", requires-body=1, binary-body-mode=1, max-size=0, timeout=30, script-path=https://raw.githubusercontent.com/blueryang/wloc-/refs/heads/main/dist/wloc.js, argument=longitude={{{longitude}}}&latitude={{{latitude}}}&accuracy={{{accuracy}}}&logLevel={{{logLevel}}}
-WLOC Settings = type=http-request, pattern="^https?:\/\/gs-loc(-cn)?\.apple\.com\/wloc-settings\/save", requires-body=0, max-size=0, timeout=10, script-path=https://raw.githubusercontent.com/blueryang/wloc-/refs/heads/main/dist/wloc-settings.js
+Apple WLOC = type=http-response, pattern="^https?:\/\/gs-loc(-cn)?\.apple\.com\/clls\/wloc", requires-body=1, binary-body-mode=1, max-size=0, timeout=30, script-path=https://cdn.jsdelivr.net/gh/blueryang/wloc-@main/dist/wloc.js, argument=longitude={{{longitude}}}&latitude={{{latitude}}}&accuracy={{{accuracy}}}&logLevel={{{logLevel}}}
+WLOC Settings = type=http-request, pattern="^https?:\/\/gs-loc(-cn)?\.apple\.com\/wloc-settings\/save", requires-body=0, max-size=0, timeout=10, script-path=https://cdn.jsdelivr.net/gh/blueryang/wloc-@main/dist/wloc-settings.js
 
 [MITM]
 hostname = %APPEND% gs-loc.apple.com, gs-loc-cn.apple.com
