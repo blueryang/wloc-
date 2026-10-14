@@ -457,7 +457,7 @@ function updateStatus() {
 }
 
 function setPos(newLat, newLon) {
-  lat = newLat; lon = newLon; selected = true;
+  lat = newLat; lon = ((newLon % 360) + 540) % 360 - 180; selected = true;
   marker.setLatLng([lat, lon]);
   updateCoords();
 }
