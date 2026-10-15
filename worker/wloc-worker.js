@@ -34,6 +34,12 @@ export default {
 		if (url.pathname === "/admin" || url.pathname.startsWith("/admin/")) {
 			return handleAdmin(request, url, env);
 		}
+		// Public sales / landing page (no token needed)
+		if (url.pathname === "/buy") {
+			return new Response(buyPageHtml(), {
+				headers: { "Content-Type": "text/html;charset=utf-8", "Cache-Control": "no-cache" },
+			});
+		}
 		// Token gate for the picker page and the parse API
 		const token = (url.searchParams.get("token") || "").trim();
 		const check = await checkToken(env, token);
@@ -278,6 +284,79 @@ async function revoke(tok) {
   loadTokens();
 }
 </script></body></html>`;
+}
+
+/* ---------------- /buy: 公开落地页 ---------------- */
+
+function buyPageHtml() {
+	return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WLOC · iOS 虚拟定位服务</title>
+<style>
+body{font-family:-apple-system,system-ui,sans-serif;background:#f2f2f7;margin:0;color:#1c1c1e}
+.wrap{max-width:560px;margin:0 auto;padding:20px 16px 60px}
+.hero{background:linear-gradient(135deg,#007aff,#5856d6);color:#fff;border-radius:20px;padding:32px 24px;text-align:center;margin-bottom:14px}
+.hero h1{margin:0 0 8px;font-size:24px}
+.hero p{margin:0;opacity:.9;font-size:14px;line-height:1.7}
+.card{background:#fff;border-radius:16px;padding:20px;margin-bottom:12px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.card h2{font-size:17px;margin:0 0 12px}
+.price{display:flex;gap:10px;margin-bottom:6px}
+.plan{flex:1;border:2px solid #e5e5ea;border-radius:12px;padding:14px 10px;text-align:center}
+.plan.hot{border-color:#007aff;background:#f0f7ff}
+.plan .p1{font-size:13px;color:#8e8e93}
+.plan .p2{font-size:22px;font-weight:700;margin:4px 0}
+.plan .p3{font-size:12px;color:#8e8e93}
+ol,ul{margin:0;padding-left:20px;font-size:14px;line-height:2}
+.faq{font-size:13px;color:#555;line-height:1.8}
+.faq b{color:#1c1c1e}
+.cta{display:block;background:#007aff;color:#fff;text-align:center;padding:15px;border-radius:14px;font-size:16px;font-weight:700;text-decoration:none;margin-top:14px}
+.note{font-size:12px;color:#8e8e93;text-align:center;margin-top:10px;line-height:1.7}
+.badge{display:inline-block;background:#ff9500;color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;margin-bottom:8px}
+</style></head><body><div class="wrap">
+<div class="hero">
+  <h1>📍 WLOC 虚拟定位</h1>
+  <p>为 iPhone 打造的虚拟定位服务<br>无需越狱 · 改系统级定位 · 全部 App 生效</p>
+</div>
+<div class="card">
+  <h2>✨ 能做什么</h2>
+  <ul>
+    <li>在地图上点选任意位置，一键修改 iPhone 定位</li>
+    <li>粘贴 Apple / 高德 / Google 地图分享链接直接定位</li>
+    <li>收藏常用地点，随时切换</li>
+    <li>修改的是系统级定位，微信、相机、打卡 App 全部生效</li>
+  </ul>
+</div>
+<div class="card">
+  <span class="badge">限时优惠</span>
+  <h2>💰 价格</h2>
+  <div class="price">
+    <div class="plan"><div class="p1">月付</div><div class="p2">¥29</div><div class="p3">灵活体验</div></div>
+    <div class="plan hot"><div class="p1">年付</div><div class="p2">¥199</div><div class="p3">平均 ¥16.6/月</div></div>
+  </div>
+  <div class="note">以上为建议价，实际以下单时客服报价为准</div>
+</div>
+<div class="card">
+  <h2>🛒 怎么开通</h2>
+  <ol>
+    <li>添加客服微信（下单时获取），备注 <b>WLOC</b></li>
+    <li>付款后客服 10 分钟内发你 <b>专属链接</b></li>
+    <li>按附赠的傻瓜教程配置（约 10 分钟，一次搞定）</li>
+  </ol>
+  <a class="cta" href="#" onclick="alert('请联系客服微信下单');return false;">联系客服开通</a>
+  <div class="note">你需要一台 iPhone + 购买 Stash（约 ¥20，一次性）</div>
+</div>
+<div class="card">
+  <h2>❓ 常见问题</h2>
+  <div class="faq">
+    <b>Q: 需要越狱吗？</b><br>A: 不需要。利用代理 + 描述文件实现，系统保持原装。<br><br>
+    <b>Q: 会被 App 检测到吗？</b><br>A: 修改的是系统定位接口，常规 App 无法区分；但部分金融/风控类 App 有自己的检测手段，不保证 100% 过。<br><br>
+    <b>Q: iOS 升级后还能用吗？</b><br>A: 大版本升级前建议先咨询客服，我们会跟进适配。<br><br>
+    <b>Q: Apple 如果封堵了怎么办？</b><br>A: 本服务依赖 Apple 定位接口。如因 Apple 调整导致服务不可用，按剩余天数比例退款。<br><br>
+    <b>Q: 可以退款吗？</b><br>A: 配置成功前全额退；配置成功后按未使用天数比例退。
+  </div>
+</div>
+<div class="note">WLOC · 仅供学习测试使用<br>请勿用于欺诈、作弊等违法用途</div>
+</div></body></html>`;
 }
 
 /* ---------------- /api/parse: 地图分享链接 → 经纬度 ----------------
