@@ -1,20 +1,50 @@
 /**
- * WLOC Location Spoofer - Cloudflare Worker
+ * WLOC Location Spoofer - Cloudflare Worker (multi-tenant SaaS edition)
  *
- * A purely static page, no KV or any storage binding required.
- * Coordinates are written to the device's local $persistentStore by the proxy module.
+ * The picker page + /api/parse are gated behind per-user tokens stored in KV.
+ * Coordinates themselves still live on each user's device ($persistentStore
+ * via the proxy module's MITM on gs-loc.apple.com) - the Worker stores no
+ * location data, only access tokens.
  *
- * Bilingual (Chinese / English) UI, defaults to Chinese, with a language toggle
- * in the top-left of the map. Kept in sync with worker/src/page.js.
+ * Bindings required:
+ *   - KV namespace bound as WLOC_TOKENS
+ *   - Secret ADMIN_SECRET (Bearer token for /admin API)
  *
- * Deploy: Cloudflare Workers (no resource bindings needed)
+ * Token model in KV: "token:<tok>" -> JSON {
+ *   note, createdAt, expiresAt (0 = never), revoked, lastUsedAt }
+ *
+ * Routes:
+ *   GET /?token=xxx            picker page (token required)
+ *   GET /api/parse?token=&url= link parser (token required)
+ *   GET /admin                  admin login page
+ *   GET /admin/api/tokens       list tokens (Bearer ADMIN_SECRET)
+ *   POST /admin/api/tokens      create token {note, days} (Bearer)
+ *   DELETE /admin/api/tokens/<tok>  revoke token (Bearer)
+ *
+ * Deploy: Cloudflare Workers (KV binding + secret needed)
  */
 
 export default {
-	async fetch(request) {
+	async fetch(request, env) {
 		const url = new URL(request.url);
 		if (request.method === "OPTIONS") {
 			return new Response(null, { headers: { "Access-Control-Allow-Origin": "*" } });
+		}
+		// Admin console + API (protected by ADMIN_SECRET)
+		if (url.pathname === "/admin" || url.pathname.startsWith("/admin/")) {
+			return handleAdmin(request, url, env);
+		}
+		// Token gate for the picker page and the parse API
+		const token = (url.searchParams.get("token") || "").trim();
+		const check = await checkToken(env, token);
+		if (!check.ok) {
+			if (url.pathname === "/api/parse") {
+				return jsonResp({ error: check.error }, 403, {
+					"Content-Type": "application/json;charset=utf-8",
+					"Access-Control-Allow-Origin": "*",
+				});
+			}
+			return tokenDeniedPage(check.error);
 		}
 		if (url.pathname === "/api/parse") {
 			return handleApiParse(url);
@@ -22,6 +52,233 @@ export default {
 		return servePage(url);
 	},
 };
+
+/* ---------------- Token gating (KV-backed) ---------------- */
+
+function jsonHeaders() {
+	return { "Content-Type": "application/json;charset=utf-8", "Access-Control-Allow-Origin": "*" };
+}
+
+async function checkToken(env, token) {
+	if (!token) return { ok: false, error: "missing token" };
+	if (!env.WLOC_TOKENS) return { ok: false, error: "server misconfigured (no KV)" };
+	let raw = null;
+	try {
+		raw = await env.WLOC_TOKENS.get("token:" + token);
+	} catch (e) {
+		return { ok: false, error: "token store unavailable" };
+	}
+	if (!raw) return { ok: false, error: "invalid token" };
+	let info;
+	try {
+		info = JSON.parse(raw);
+	} catch (e) {
+		return { ok: false, error: "invalid token" };
+	}
+	if (info.revoked) return { ok: false, error: "token revoked" };
+	if (info.expiresAt && Date.now() > info.expiresAt) return { ok: false, error: "token expired" };
+	// Refresh lastUsedAt at most once per hour (keeps KV writes tiny)
+	if (!info.lastUsedAt || Date.now() - info.lastUsedAt > 3600000) {
+		info.lastUsedAt = Date.now();
+		try {
+			await env.WLOC_TOKENS.put("token:" + token, JSON.stringify(info));
+		} catch (e) { /* non-fatal */ }
+	}
+	return { ok: true, info: info };
+}
+
+function tokenDeniedPage(reason) {
+	const msg = {
+		"missing token": "缺少访问 token",
+		"invalid token": "token 无效",
+		"token revoked": "token 已被停用",
+		"token expired": "token 已过期，请续费",
+		"server misconfigured (no KV)": "服务端未配置",
+		"token store unavailable": "服务端暂时不可用",
+	}[reason] || reason;
+	const html = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WLOC - 需要授权</title>
+<style>body{font-family:-apple-system,system-ui,sans-serif;background:#f2f2f7;display:flex;align-items:center;justify-content:center;min-height:90vh;margin:0}
+.card{background:#fff;border-radius:16px;padding:32px 28px;max-width:340px;text-align:center;box-shadow:0 2px 12px rgba(0,0,0,.08)}
+h1{font-size:20px;margin:0 0 8px}.p{color:#8e8e93;font-size:14px;line-height:1.6}</style>
+</head><body><div class="card"><h1>🔒 需要授权</h1>
+<p class="p">${msg}。<br>请使用你的专属链接访问，或联系客服开通。</p></div></body></html>`;
+	return new Response(html, { status: 403, headers: { "Content-Type": "text/html;charset=utf-8" } });
+}
+
+/* ---------------- Admin console ----------------
+ * GET /admin -> login page; all /admin/api/* need Authorization: Bearer <ADMIN_SECRET>
+ */
+
+async function handleAdmin(request, url, env) {
+	const secret = (env.ADMIN_SECRET || "").trim();
+	const authed = secret && (request.headers.get("Authorization") || "").trim() === "Bearer " + secret;
+
+	if (url.pathname === "/admin" && request.method === "GET") {
+		return new Response(adminPageHtml(), { headers: { "Content-Type": "text/html;charset=utf-8" } });
+	}
+	if (!authed) {
+		return jsonResp({ error: "unauthorized" }, 401, jsonHeaders());
+	}
+	if (!env.WLOC_TOKENS) {
+		return jsonResp({ error: "server misconfigured (no KV)" }, 500, jsonHeaders());
+	}
+
+	// GET /admin/api/tokens -> list
+	if (url.pathname === "/admin/api/tokens" && request.method === "GET") {
+		const out = [];
+		let cursor = undefined;
+		do {
+			const page = await env.WLOC_TOKENS.list({ prefix: "token:", cursor: cursor });
+			for (const k of page.keys) {
+				const raw = await env.WLOC_TOKENS.get(k.name);
+				let info = {};
+				try { info = JSON.parse(raw || "{}"); } catch (e) {}
+				out.push({
+					token: k.name.slice("token:".length),
+					note: info.note || "",
+					createdAt: info.createdAt || 0,
+					expiresAt: info.expiresAt || 0,
+					revoked: !!info.revoked,
+					lastUsedAt: info.lastUsedAt || 0,
+				});
+			}
+			cursor = page.list_complete ? undefined : page.cursor;
+		} while (cursor);
+		out.sort((a, b) => b.createdAt - a.createdAt);
+		return jsonResp({ tokens: out }, 200, jsonHeaders());
+	}
+
+	// POST /admin/api/tokens {note, days} -> create
+	if (url.pathname === "/admin/api/tokens" && request.method === "POST") {
+		let body = {};
+		try { body = await request.json(); } catch (e) {}
+		const note = String(body.note || "").slice(0, 80);
+		const days = Math.max(0, parseInt(body.days, 10) || 0);
+		const tok = "wloc_" + crypto.randomUUID().replace(/-/g, "");
+		const now = Date.now();
+		const info = {
+			note: note,
+			createdAt: now,
+			expiresAt: days > 0 ? now + days * 86400000 : 0,
+			revoked: false,
+			lastUsedAt: 0,
+		};
+		await env.WLOC_TOKENS.put("token:" + tok, JSON.stringify(info));
+		return jsonResp({ token: tok, info: info }, 200, jsonHeaders());
+	}
+
+	// DELETE /admin/api/tokens/<tok> -> revoke
+	const m = url.pathname.match(/^\/admin\/api\/tokens\/([A-Za-z0-9_]+)$/);
+	if (m && request.method === "DELETE") {
+		const key = "token:" + m[1];
+		const raw = await env.WLOC_TOKENS.get(key);
+		if (!raw) return jsonResp({ error: "not found" }, 404, jsonHeaders());
+		let info = {};
+		try { info = JSON.parse(raw); } catch (e) {}
+		info.revoked = true;
+		await env.WLOC_TOKENS.put(key, JSON.stringify(info));
+		return jsonResp({ ok: true }, 200, jsonHeaders());
+	}
+
+	return jsonResp({ error: "not found" }, 404, jsonHeaders());
+}
+
+function adminPageHtml() {
+	return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WLOC 管理后台</title>
+<style>
+body{font-family:-apple-system,system-ui,sans-serif;background:#f2f2f7;margin:0;padding:16px;color:#1c1c1e}
+.wrap{max-width:720px;margin:0 auto}
+.card{background:#fff;border-radius:14px;padding:18px;margin-bottom:12px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+h2{font-size:17px;margin:0 0 12px}
+input,button{font-size:14px;padding:10px 12px;border-radius:9px;border:1px solid #d1d1d6;outline:none}
+input{width:100%;box-sizing:border-box;margin-bottom:8px}
+input:focus{border-color:#007aff}
+.btn{background:#007aff;color:#fff;border:none;cursor:pointer;font-weight:600}
+.btn:active{opacity:.85}
+.btn-danger{background:#ff3b30;color:#fff;border:none;cursor:pointer;padding:6px 12px;font-size:12px}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th,td{text-align:left;padding:8px 6px;border-bottom:1px solid #eee;vertical-align:top}
+th{color:#8e8e93;font-weight:600;font-size:11px}
+.mono{font-family:ui-monospace,monospace;word-break:break-all}
+.badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600}
+.ok{background:#d2f5d2;color:#1a7a1a}.bad{background:#ffd9d9;color:#c00}.warn{background:#ffe9c2;color:#a05a00}
+.row{display:flex;gap:8px}.row input{flex:1;margin-bottom:0}
+.hint{font-size:12px;color:#8e8e93;margin-top:8px;line-height:1.6}
+#login{max-width:380px;margin:60px auto}
+.hidden{display:none}
+</style></head><body><div class="wrap">
+<div class="card" id="login">
+  <h2>🔑 WLOC 管理后台</h2>
+  <input type="password" id="pw" placeholder="输入管理密钥">
+  <button class="btn" style="width:100%" onclick="doLogin()">进入</button>
+  <div class="hint">管理密钥只保存在本浏览器会话中，不会发送到除本服务外的任何地方。</div>
+</div>
+<div id="main" class="hidden">
+  <div class="card">
+    <h2>➕ 开通新用户</h2>
+    <div class="row">
+      <input id="note" placeholder="备注（如：微信 xxx）" maxlength="80">
+      <input id="days" type="number" placeholder="有效天数（0=永久）" style="max-width:150px">
+      <button class="btn" onclick="createToken()">生成</button>
+    </div>
+    <div class="hint" id="newTok"></div>
+  </div>
+  <div class="card">
+    <h2>👥 用户 token <button class="btn" style="padding:6px 14px;font-size:12px" onclick="loadTokens()">刷新</button></h2>
+    <div id="list">加载中…</div>
+  </div>
+</div>
+</div>
+<script>
+let SECRET = sessionStorage.getItem('wloc_admin') || '';
+if (SECRET) { document.getElementById('login').classList.add('hidden'); document.getElementById('main').classList.remove('hidden'); loadTokens(); }
+async function api(path, method, body) {
+  const r = await fetch(path, { method: method || 'GET',
+    headers: { 'Authorization': 'Bearer ' + SECRET, 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined });
+  if (r.status === 401) { sessionStorage.removeItem('wloc_admin'); location.reload(); throw new Error('unauthorized'); }
+  return r.json();
+}
+async function doLogin() {
+  SECRET = document.getElementById('pw').value.trim();
+  if (!SECRET) return;
+  try { await api('/admin/api/tokens'); sessionStorage.setItem('wloc_admin', SECRET);
+    document.getElementById('login').classList.add('hidden'); document.getElementById('main').classList.remove('hidden'); loadTokens();
+  } catch(e) { alert('密钥错误'); }
+}
+function fmt(ts) { return ts ? new Date(ts).toLocaleString('zh-CN', {hour12:false}) : '-'; }
+async function loadTokens() {
+  const el = document.getElementById('list');
+  try {
+    const d = await api('/admin/api/tokens');
+    if (!d.tokens.length) { el.innerHTML = '<div class="hint">暂无用户</div>'; return; }
+    el.innerHTML = '<table><tr><th>Token</th><th>备注</th><th>开通</th><th>到期</th><th>最后使用</th><th>状态</th><th></th></tr>' +
+      d.tokens.map(t2 => '<tr><td class="mono">' + t2.token.slice(0,12) + '…</td><td>' + esc(t2.note) + '</td><td>' + fmt(t2.createdAt) + '</td><td>' + (t2.expiresAt ? fmt(t2.expiresAt) : '永久') + '</td><td>' + fmt(t2.lastUsedAt) + '</td><td>' +
+      (t2.revoked ? '<span class="badge bad">已停用</span>' : (t2.expiresAt && Date.now() > t2.expiresAt ? '<span class="badge warn">已过期</span>' : '<span class="badge ok">正常</span>')) + '</td><td>' +
+      (t2.revoked ? '' : '<button class="btn-danger" onclick="revoke(\\'' + t2.token + '\\')">停用</button>') + '</td></tr>').join('') + '</table>';
+  } catch(e) { el.innerHTML = '<div class="hint">加载失败</div>'; }
+}
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+async function createToken() {
+  const note = document.getElementById('note').value.trim();
+  const days = parseInt(document.getElementById('days').value, 10) || 0;
+  const d = await api('/admin/api/tokens', 'POST', { note: note, days: days });
+  const link = location.origin + '/?token=' + d.token;
+  document.getElementById('newTok').innerHTML = '✅ 已生成，发给用户这个专属链接：<br><span class="mono">' + link + '</span>';
+  document.getElementById('note').value = '';
+  loadTokens();
+}
+async function revoke(tok) {
+  if (!confirm('确定停用这个 token？用户将立即无法使用。')) return;
+  await api('/admin/api/tokens/' + tok, 'DELETE');
+  loadTokens();
+}
+</script></body></html>`;
+}
 
 /* ---------------- /api/parse: 地图分享链接 → 经纬度 ----------------
  * GET /api/parse?url=<分享链接>
